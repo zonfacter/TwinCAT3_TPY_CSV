@@ -1,7 +1,10 @@
 # convert\_tpy\_csv – README
 
 Konvertiert eine **Beckhoff TwinCAT .tpy** in eine CSV im Format des **SPS‑Analyzer 6** (TwinCAT‑Modul), inkl. Entfaltung von **ARRAYs** und **STRUCT/UDT‑SubItems**.
-![TwinCAT .tpy → CSV – SPS-Analyzer 6 kompatibel](assets/social-preview.png)
+<p align="center">
+  <img src="assets/social-preview.png" alt="TwinCAT .tpy → CSV – SPS-Analyzer 6 kompatibel" width="60%">
+</p>
+
 
 ---
 
