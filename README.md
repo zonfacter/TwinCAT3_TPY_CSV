@@ -36,12 +36,13 @@ python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ## Aufruf / Parameter
 
 ```bash
-python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ```
 
-**Optionales Flag:**
+**Optionale Flags:**
 
-* `--no-recurse` → schaltet die rekursive Entfaltung verschachtelter UDTs/Funktionsbausteine aus.
+* `--no-recurse` → deaktiviert **alle** rekursiven Entfaltungen (Top‑UDTs/FBs & Arrays).
+* `--no-array-recurse` → deaktiviert nur die **rekursive Entfaltung von UDT‑Array‑Elementen**.
 
 **Beispiele (Windows CMD):**
 
@@ -52,8 +53,11 @@ python convert_tpy_csv.py C:\Projekte\TwinCAT\Plc.tpy C:\Export\output.csv
 REM relativ (aus C:\Projekte)
 python convert_tpy_csv.py TwinCAT\Plc.tpy Export\output.csv
 
-REM ohne Rekursion
+REM ohne Rekursion (alles)
 python convert_tpy_csv.py --no-recurse TwinCAT\Plc.tpy Export\output.csv
+
+REM nur Array‑Rekursion aus
+python convert_tpy_csv.py --no-array-recurse TwinCAT\Plc.tpy Export\output.csv
 ```
 
 > Achtung: `\tpy\Plc.tpy` (führender Backslash) wird als UNC‑Pfad interpretiert und führt zu *FileNotFoundError*. Entweder **relativ ohne führenden Backslash** oder **absolut** angeben.
@@ -107,10 +111,14 @@ Beckhoff TwinCat V2-PLC-Symbolfile
 
 ### Rekursive Entfaltung (Standard: EIN)
 
-* **Was:** SubItems, deren **Type** wiederum ein `<DataType>` ist (UDT/FB, z. B. `Tc2_Standard.R_TRIG`, `Tc2_Standard.TON`, `Tc2_MC2.*`, `TC3_UniLib.*`), werden **weiter entfaltet**.
-* **Name:** bei jedem Schritt vollständig qualifiziert (`Parent.SubItem[.SubSubItem…]`).
+* **Top‑UDTs/FBs:** SubItems, deren **Type** wiederum ein `<DataType>` ist (z. B. `Tc2_Standard.R_TRIG`, `Tc2_Standard.TON`, `Tc2_MC2.*`, `TC3_UniLib.*`), werden **weiter entfaltet**.
+* **Arrays von UDTs:** `ARRAY [...] OF <UDT>` → jedes Element wird zusätzlich **rekursiv entfaltet** (z. B. `.arrAxis[1].PlcToNc.*`).
+* **Name:** bei jedem Schritt vollständig qualifiziert (`Parent.SubItem[.SubSubItem…]` bzw. `ArrayName[i].SubItem…`).
 * **Offset/Adresse:** absolute `BitOffs` wird kumuliert (Summe der relativen Offsets); `ActualAddress = Basis + (BitOffs // 8)`; `IOffset = ActualAddress`.
-* **Deaktivieren:** per Flag `--no-recurse`.
+* **Deaktivieren:**
+
+  * alle Rekursionen: `--no-recurse`
+  * nur Array‑Rekursion: `--no-array-recurse`
 
 ### Top‑Symbol
 
@@ -170,7 +178,7 @@ HEADER_LINES = 2
 
 * Die Datensatzanzahl kann durch die **rekursive Entfaltung** von UDTs/FBs **sehr stark ansteigen**.
 * Praxisbeispiel: ohne Rekursion ≈ **41 575** Datensätze → mit Rekursion **666 130** Datensätze (gleiche .tpy).
-* Plane entsprechend **Laufzeit, RAM und Dateigröße** ein. Der SPS‑Analyzer lädt große CSVs spürbar langsamer. Daher ist schon ein Split ab 1.670.000 Zeilen vorgesehen
+* Plane entsprechend **Laufzeit, RAM und Dateigröße** ein. Der SPS‑Analyzer lädt große CSVs spürbar langsamer.
 * Wenn die Datei zu groß wird: Script mit `--no-recurse` starten, oder zusätzliche Filterlogik einbauen (kann bei Bedarf ergänzt werden).
 * Das **Chunking** splittet automatisch; jede Teil‑Datei hat eine eigene Zeile‑2‑Zählung (Datensätze dieses Teils).
 
