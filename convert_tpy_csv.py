@@ -5,11 +5,22 @@ import re
 import sys
 from pathlib import Path
 
-# ---------- Konfiguration ----------
-input_file = sys.argv[1] if len(sys.argv) > 1 else '/mnt/data/Plc.tpy'
-output_file = sys.argv[2] if len(sys.argv) > 2 else '/mnt/data/output.csv'
+# ---------- CLI / Konfiguration ----------
+# Syntax: python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
+args = sys.argv[1:]
+RECURSE = True
+paths = []
 
-# Maximale Zeilen pro Datei (inkl. der 2 Headerzeilen)
+for a in args:
+    if a == '--no-recurse':
+        RECURSE = False
+    else:
+        paths.append(a)
+
+input_file = paths[0] if len(paths) > 0 else '/mnt/data/Plc.tpy'
+output_file = paths[1] if len(paths) > 1 else '/mnt/data/output.csv'
+
+# Maximale Zeilen pro Datei (inkl. 2 Headerzeilen)
 MAX_TOTAL_LINES_PER_FILE = 1_670_000
 HEADER_LINES = 2
 MAX_DATA_ROWS_PER_FILE = MAX_TOTAL_LINES_PER_FILE - HEADER_LINES  # = 1_669_998
@@ -18,7 +29,7 @@ MAX_DATA_ROWS_PER_FILE = MAX_TOTAL_LINES_PER_FILE - HEADER_LINES  # = 1_669_998
 ARRAY_RE = re.compile(r'^(?:.*)?\s*ARRAY\s*\[(\d+)\s*\.\.\s*(\d+)\]\s*OF\s*(.+)$', re.IGNORECASE)
 STRING_RE = re.compile(r'^(W?STRING)\s*\(\s*(\d+)\s*\)$', re.IGNORECASE)
 
-# Grobe primitive Typgrößen (Bit); BOOL in Arrays byte-aligned = 8 Bit
+# Primitive Typgrößen (Bit); BOOL in Arrays byte-aligned = 8 Bit
 PRIM_BITS = {
     'BOOL': 8, 'BYTE': 8, 'SINT': 8, 'USINT': 8,
     'WORD': 16, 'INT': 16, 'UINT': 16,
@@ -110,16 +121,43 @@ def qualify(parent: str, child: str) -> str:
     parent = parent or ''
     if not parent:
         return child
-    # Wenn child bereits mit parent. beginnt → ok
     if child.startswith(parent + "."):
         return child
-    # Wenn child scheinbar schon voll qualifiziert ist (enthält einen Punkt), prüfen wir auf Duplikat
-    # Trotzdem qualifizieren, um immer konsistent Parent.SubItem zu liefern
     return f"{parent}.{child}" if child else parent
 
 # ---------- CSV sammeln ----------
 rows = []
 rows.append(['IGroup','IOffset','Name','Comment','Type','BitSize','BitOffs','DefaultValue','ActualAddress'])
+
+def emit_row(igroup, io, name, comment, typ, bits, bitoffs, default, actual):
+    rows.append([igroup, io, name, comment, typ, bits, bitoffs, default, actual])
+
+def expand_struct_recursive(parent_name: str, parent_base_addr: int, parent_abs_bitoffs: int, igroup: str, dtype_name: str):
+    """Entfaltet SubItems von dtype_name. Absolute BitOffs = parent_abs_bitoffs + si_boffs."""
+    dt = datatype_by_name.get(dtype_name)
+    if dt is None:
+        return
+    for si in dt.findall('SubItem'):
+        si_name  = text(si, 'Name')
+        si_type  = text(si, 'Type')
+        si_bits  = int(text(si, 'BitSize', '0') or 0)
+        si_boffs = int(text(si, 'BitOffs', '0') or 0)  # relativ zum dtype
+
+        default_v = ''
+        de = si.find('Default/Value')
+        if de is not None and de.text:
+            default_v = de.text
+
+        abs_bitoffs = parent_abs_bitoffs + si_boffs
+        actual_addr = parent_base_addr + (abs_bitoffs // 8)
+        qual_name   = qualify(parent_name, si_name)
+
+        # Für STRUCT/UDT-SubItems: IOffset == ActualAddress
+        emit_row(igroup, actual_addr, qual_name, '', si_type, si_bits, abs_bitoffs, default_v, actual_addr)
+
+        # Rekursiv weiter, wenn erlaubt und der SubItem-Typ wiederum ein DataType ist
+        if RECURSE and si_type in datatype_by_name:
+            expand_struct_recursive(qual_name, parent_base_addr, abs_bitoffs, igroup, si_type)
 
 for sym in root.findall('.//Symbol'):
     name     = text(sym, 'Name')
@@ -130,7 +168,7 @@ for sym in root.findall('.//Symbol'):
     comment  = limit_comment(text(sym, 'Comment', ''))
 
     # Top-Zeile
-    rows.append([igroup, ioffset, name, comment, type_, bitsize, '', '', ioffset])
+    emit_row(igroup, ioffset, name, comment, type_, bitsize, '', '', ioffset)
 
     # ARRAY?
     m = ARRAY_RE.match(type_)
@@ -145,55 +183,29 @@ for sym in root.findall('.//Symbol'):
                 elem_boffs  = (idx - start) * per_bits
                 actual_addr = base_addr + (elem_boffs // 8)
                 item_name = f"{name}[{idx}]"
-                rows.append([igroup, actual_addr, item_name, '', elem_type, per_bits, elem_boffs, '', actual_addr])
+                emit_row(igroup, actual_addr, item_name, '', elem_type, per_bits, elem_boffs, '', actual_addr)
+                # (Optional) Rekursive Entfaltung von Array-UDTs könnte hier erfolgen – derzeit deaktiviert
         continue
 
-    # STRUCT/UDT (SubItems)
-    dt = datatype_by_name.get(type_)
-    if dt is not None:
-        base_addr = ioffset
-        for si in dt.findall('SubItem'):
-            si_name   = text(si, 'Name')
-            si_type   = text(si, 'Type')
-            si_bits   = int(text(si, 'BitSize', '0') or 0)
-            si_boffs  = int(text(si, 'BitOffs', '0') or 0)
-
-            # Default
-            default_v = ''
-            de = si.find('Default/Value')
-            if de is not None and de.text:
-                default_v = de.text
-
-            actual_addr = base_addr + (si_boffs // 8)
-
-            # SubItem-Namen IMMER mit Parent qualifizieren
-            qual_name = qualify(name, si_name)
-
-            rows.append([igroup, actual_addr, qual_name, '', si_type, si_bits, si_boffs, default_v, actual_addr])
+    # STRUCT/UDT (SubItems) – inkl. Rekursion in verschachtelte UDTs
+    if type_ in datatype_by_name:
+        # Basisadresse ist die IOffset des Parent-Symbols; Start-BitOffset = 0 relativ zum Parent
+        expand_struct_recursive(name, ioffset, 0, igroup, type_)
 
 # ---------- Schreiben mit Chunking ----------
 data_rows = rows[1:]
 total = len(data_rows)
 
-def write_chunk_file(path, chunk_rows):
-    record_count = len(chunk_rows)
-    with open(path, 'w', newline='', encoding='utf-8') as f:
-        f.write('Beckhoff TwinCat V2-PLC-Symbolfile\n')
-        f.write(str(record_count) + '\n')
-        w = csv.writer(f, delimiter=';', lineterminator='\n')
-        w.writerows(chunk_rows)
-    print(f"geschrieben: {path}  (Datensätze: {record_count}, Gesamtzeilen: {record_count + HEADER_LINES})")
-
 if total <= MAX_DATA_ROWS_PER_FILE:
-    write_chunk_file(part_filename(output_file, 0), data_rows)
+    write_chunk(part_filename(output_file, 0), data_rows)
 else:
     part = 0
     start = 0
     while start < total:
         end = min(start + MAX_DATA_ROWS_PER_FILE, total)
         chunk = data_rows[start:end]
-        write_chunk_file(part_filename(output_file, part), chunk)
+        write_chunk(part_filename(output_file, part), chunk)
         part += 1
         start = end
 
-print("Fertig.")
+print("Fertig. RECURSE =", RECURSE)
