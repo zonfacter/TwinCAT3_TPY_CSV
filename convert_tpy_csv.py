@@ -26,10 +26,10 @@ PRIM_BITS = {
     'LWORD': 64, 'LINT': 64, 'ULINT': 64, 'LREAL': 64,
 }
 
-# Zeit-/Datumstypen (TwinCAT): Default-Werte; XML kann dies überschreiben, falls als DataType definiert
+# Zeit-/Datumstypen (TwinCAT)
 SPECIAL_BITS = {
     'TIME': 32,
-    'DATE_AND_TIME': 32,   # in deiner Datei 32 Bit
+    'DATE_AND_TIME': 32,
     'DATE': 16,
     'TIME_OF_DAY': 32,
     'TOD': 32,
@@ -46,22 +46,12 @@ def limit_comment(s):
     return (s or '')[:200].replace('\n',' ').replace('\r',' ')
 
 def part_filename(base_path: str, part_index: int) -> str:
-    """
-    part_index = 0 -> originaler Dateiname
-    part_index >= 1 -> <stem>_<part+1><suffix>  (z. B. output_2.csv, output_3.csv, ...)
-    """
     p = Path(base_path)
     if part_index == 0:
         return str(p)
     return str(p.with_name(f"{p.stem}_{part_index+1}{p.suffix}"))
 
 def write_chunk(filepath: str, data_rows):
-    """
-    Schreibt eine Datei im geforderten Format:
-      Zeile 1: 'Beckhoff TwinCat V2-PLC-Symbolfile'
-      Zeile 2: Anzahl der Datensätze (len(data_rows))
-      ab Zeile 3: Datensätze
-    """
     record_count = len(data_rows)
     with open(filepath, 'w', newline='', encoding='utf-8') as f:
         f.write('Beckhoff TwinCat V2-PLC-Symbolfile\n')
@@ -74,10 +64,9 @@ def write_chunk(filepath: str, data_rows):
 tree = ET.parse(input_file)
 root = tree.getroot()
 
-# DataType-Map: Name -> Element (+ BitSize Cache)
+# DataType-Map
 datatype_by_name = {}
 datatype_bits = {}
-
 for dt in root.findall('.//DataTypes/DataType'):
     dt_name = text(dt, 'Name')
     if dt_name:
@@ -89,46 +78,35 @@ for dt in root.findall('.//DataTypes/DataType'):
             datatype_bits[dt_name] = 0
 
 def get_type_bits(type_name: str, symbol_bitsize: int | None = None, array_count: int | None = None) -> int:
-    """
-    Liefert die Bitgröße eines (Element-)Typs.
-    Reihenfolge: primitive -> STRING/WSTRING -> SPECIAL -> DataType.BitSize -> Fallback (symbol_bitsize/array_count) -> 8
-    """
     if not type_name:
         return 8
     base = type_name.strip()
 
-    # Primitive
     b = PRIM_BITS.get(base.upper())
     if b is not None:
         return b
 
-    # STRING / WSTRING
     m = STRING_RE.match(base)
     if m:
         n = int(m.group(2))
         bytes_per_char = 2 if m.group(1).upper().startswith('W') else 1
-        return (n + 1) * bytes_per_char * 8  # +1 für Terminator
+        return (n + 1) * bytes_per_char * 8
 
-    # Zeit-/Datum
     b = SPECIAL_BITS.get(base.upper())
     if b is not None:
         return b
 
-    # DataType aus <DataTypes>?
     b = datatype_bits.get(base)
     if b:
         return b
 
-    # Fallback: aus Symbol-Gesamtbits / Anzahl ableiten (mindestens Byte)
     if symbol_bitsize and array_count:
         return max(8, (symbol_bitsize // array_count))
 
-    # Worst-case konservativ
     return 8
 
 # ---------- CSV sammeln ----------
 rows = []
-# interne Spaltenliste (wird später nicht in die Datei geschrieben)
 rows.append(['IGroup','IOffset','Name','Comment','Type','BitSize','BitOffs','DefaultValue','ActualAddress'])
 
 for sym in root.findall('.//Symbol'):
@@ -139,66 +117,76 @@ for sym in root.findall('.//Symbol'):
     bitsize  = int(text(sym, 'BitSize', '0') or 0)
     comment  = limit_comment(text(sym, 'Comment', ''))
 
-    # Ober-/Symbol-Zeile (Basisadresse als IOffset und ActualAddress)
+    # Top-Zeile
     rows.append([igroup, ioffset, name, comment, type_, bitsize, '', '', ioffset])
 
-    # ---------- ARRAY entfalten ----------
+    # ARRAY?
     m = ARRAY_RE.match(type_)
     if m:
-        start = int(m.group(1))
-        end   = int(m.group(2))
+        start = int(m.group(1)); end = int(m.group(2))
         elem_type = m.group(3).strip()
-
         count = end - start + 1 if end >= start else 0
         if count > 0:
             per_bits = get_type_bits(elem_type, symbol_bitsize=bitsize, array_count=count)
-
-            base_addr = ioffset  # Basis bleibt gleich für Berechnung
+            base_addr = ioffset
             for idx in range(start, end + 1):
-                elem_boffs  = (idx - start) * per_bits           # BitOffset relativ zur Basis
-                actual_addr = base_addr + (elem_boffs // 8)      # Byte-Adresse des Elements
+                elem_boffs  = (idx - start) * per_bits
+                actual_addr = base_addr + (elem_boffs // 8)
                 item_name = f"{name}[{idx}]"
-                # Für ARRAY-Elemente: IOffset == ActualAddress
                 rows.append([igroup, actual_addr, item_name, '', elem_type, per_bits, elem_boffs, '', actual_addr])
-
-        # Keine Struct-Entfaltung zusätzlich
         continue
 
-    # ---------- STRUCT/UDT entfalten (SubItems aus DataType auflösen) ----------
+    # STRUCT/UDT (SubItems)
     dt = datatype_by_name.get(type_)
     if dt is not None:
-        base_addr = ioffset  # Basisadresse des übergeordneten Symbols
+        base_addr = ioffset
         for si in dt.findall('SubItem'):
             si_name   = text(si, 'Name')
             si_type   = text(si, 'Type')
             si_bits   = int(text(si, 'BitSize', '0') or 0)
-            si_boffs  = int(text(si, 'BitOffs', '0') or 0)  # Bit-Offset relativ zur Basis
+            si_boffs  = int(text(si, 'BitOffs', '0') or 0)
 
-            # Default falls vorhanden (TwinCAT: <Default><Value>…</Value></Default>)
+            # Default
             default_v = ''
             de = si.find('Default/Value')
             if de is not None and de.text:
                 default_v = de.text
 
             actual_addr = base_addr + (si_boffs // 8)
-            # Für STRUCT/UDT-SubItems: IOffset == ActualAddress
-            rows.append([igroup, actual_addr, si_name, '', si_type, si_bits, si_boffs, default_v, actual_addr])
 
-# ---------- Schreiben: Chunking nach max. Dateizeilen ----------
-data_rows = rows[1:]  # erste Zeile war nur interne Spaltenüberschrift
+            # Regel: SubItem-Namen mit Parent qualifizieren (Parent.SubItem)
+            if name:
+                if si_name and not si_name.startswith(name + "."):
+                    qual_name = f"{name}.{si_name}"
+                else:
+                    qual_name = si_name or name
+            else:
+                qual_name = si_name or ''
+
+            rows.append([igroup, actual_addr, qual_name, '', si_type, si_bits, si_boffs, default_v, actual_addr])
+
+# ---------- Schreiben mit Chunking ----------
+data_rows = rows[1:]
 total = len(data_rows)
 
+def write_chunk_file(path, chunk_rows):
+    record_count = len(chunk_rows)
+    with open(path, 'w', newline='', encoding='utf-8') as f:
+        f.write('Beckhoff TwinCat V2-PLC-Symbolfile\n')
+        f.write(str(record_count) + '\n')
+        w = csv.writer(f, delimiter=';', lineterminator='\n')
+        w.writerows(chunk_rows)
+    print(f"geschrieben: {path}  (Datensätze: {record_count}, Gesamtzeilen: {record_count + HEADER_LINES})")
+
 if total <= MAX_DATA_ROWS_PER_FILE:
-    # Passt in eine Datei
-    write_chunk(part_filename(output_file, 0), data_rows)
+    write_chunk_file(part_filename(output_file, 0), data_rows)
 else:
-    # In Teile splitten
     part = 0
     start = 0
     while start < total:
         end = min(start + MAX_DATA_ROWS_PER_FILE, total)
         chunk = data_rows[start:end]
-        write_chunk(part_filename(output_file, part), chunk)
+        write_chunk_file(part_filename(output_file, part), chunk)
         part += 1
         start = end
 
