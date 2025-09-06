@@ -1,0 +1,12 @@
+# Whitelist-Beispiel (Regex je Zeile)
+# Nur diese UDTs/FBs werden rekursiv entfaltet.
+# Zeilen, die mit #, ; oder // beginnen, sind Kommentare.
+
+^Tc2_Standard\.(TON|R_TRIG)$
+^Tc2_MC2\.
+^TC3_UniLib\.(ST_NcAchsen|ST_UniBaustein)$
+
+# Hinweis:
+# - Regex ist standardmäßig **case-sensitiv**.
+# - Für case-insensitive kannst du (?i) als Präfix in der Zeile verwenden, z. B.:
+# (?i)^tc2_standard\.(ton|r_trig)$

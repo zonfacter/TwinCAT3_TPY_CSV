@@ -6,16 +6,31 @@ import sys
 from pathlib import Path
 
 # ---------- CLI / Konfiguration ----------
-# Syntax: python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
+# Syntax:
+#   python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] [--only <file>] [--skip <file>] <Eingabe.tpy> <Ausgabe.csv>
 args = sys.argv[1:]
-RECURSE = True
+RECURSE = True              # rekursive Entfaltung von UDTs (STRUCT/FB) aus Top-Symbolen
+RECURSE_ARRAY = True        # rekursive Entfaltung in ARRAY-Elementen, wenn Elementtyp UDT ist
+ONLY_FILE = None            # Pfad zu Whitelist-Datei (Regex je Zeile)
+SKIP_FILE = None            # Pfad zu Blacklist-Datei (Regex je Zeile)
 paths = []
 
-for a in args:
+i = 0
+while i < len(args):
+    a = args[i]
     if a == '--no-recurse':
         RECURSE = False
+        RECURSE_ARRAY = False
+        i += 1
+    elif a == '--no-array-recurse':
+        RECURSE_ARRAY = False
+        i += 1
+    elif a == '--only' and i+1 < len(args):
+        ONLY_FILE = args[i+1]; i += 2
+    elif a == '--skip' and i+1 < len(args):
+        SKIP_FILE = args[i+1]; i += 2
     else:
-        paths.append(a)
+        paths.append(a); i += 1
 
 input_file = paths[0] if len(paths) > 0 else '/mnt/data/Plc.tpy'
 output_file = paths[1] if len(paths) > 1 else '/mnt/data/output.csv'
@@ -70,6 +85,48 @@ def write_chunk(filepath: str, data_rows):
         w = csv.writer(f, delimiter=';', lineterminator='\n')
         w.writerows(data_rows)
     print(f"geschrieben: {filepath}  (Datensätze: {record_count}, Gesamtzeilen: {record_count + HEADER_LINES})")
+
+# ---------- Whitelist/Blacklist laden ----------
+def load_regex_file(path):
+    pats = []
+    if not path:
+        return pats
+    p = Path(path)
+    if not p.exists():
+        print(f"Warnung: Datei nicht gefunden: {path}. Ignoriere.", file=sys.stderr)
+        return pats
+    for line in p.read_text(encoding='utf-8').splitlines():
+        s = line.strip()
+        if not s or s.startswith('#') or s.startswith(';') or s.startswith('//'):
+            continue
+        try:
+            pats.append(re.compile(s))
+        except re.error as ex:
+            print(f"Warnung: ungültiges Regex in {path}: {s!r} -> {ex}", file=sys.stderr)
+    return pats
+
+ONLY_PATS = load_regex_file(ONLY_FILE)
+SKIP_PATS = load_regex_file(SKIP_FILE)
+
+def matches_any(name: str, patterns) -> bool:
+    for pat in patterns:
+        if pat.search(name):
+            return True
+    return False
+
+def allowed_udt(name: str) -> bool:
+    """Whitelist/Blacklist-Regeln anwenden.
+       - Wenn ONLY_PATS vorhanden: nur UDTs zulassen, die irgendeinem ONLY-Pattern entsprechen.
+       - Danach ggf. via SKIP_PATS ausschließen.
+    """
+    if name is None:
+        return False
+    if ONLY_PATS:
+        if not matches_any(name, ONLY_PATS):
+            return False
+    if SKIP_PATS and matches_any(name, SKIP_PATS):
+        return False
+    return True
 
 # ---------- XML laden ----------
 tree = ET.parse(input_file)
@@ -132,8 +189,9 @@ rows.append(['IGroup','IOffset','Name','Comment','Type','BitSize','BitOffs','Def
 def emit_row(igroup, io, name, comment, typ, bits, bitoffs, default, actual):
     rows.append([igroup, io, name, comment, typ, bits, bitoffs, default, actual])
 
-def expand_struct_recursive(parent_name: str, parent_base_addr: int, parent_abs_bitoffs: int, igroup: str, dtype_name: str):
-    """Entfaltet SubItems von dtype_name. Absolute BitOffs = parent_abs_bitoffs + si_boffs."""
+def expand_struct_recursive(parent_name: str, parent_base_addr: int, parent_abs_bitoffs: int, igroup: str, dtype_name: str, allow_recurse: bool):
+    """Entfaltet SubItems von dtype_name. Absolute BitOffs = parent_abs_bitoffs + si_boffs.
+       allow_recurse steuert, ob weitere Verschachtelungen erlaubt sind (Top vs. Array)."""
     dt = datatype_by_name.get(dtype_name)
     if dt is None:
         return
@@ -156,8 +214,8 @@ def expand_struct_recursive(parent_name: str, parent_base_addr: int, parent_abs_
         emit_row(igroup, actual_addr, qual_name, '', si_type, si_bits, abs_bitoffs, default_v, actual_addr)
 
         # Rekursiv weiter, wenn erlaubt und der SubItem-Typ wiederum ein DataType ist
-        if RECURSE and si_type in datatype_by_name:
-            expand_struct_recursive(qual_name, parent_base_addr, abs_bitoffs, igroup, si_type)
+        if allow_recurse and (si_type in datatype_by_name) and allowed_udt(si_type):
+            expand_struct_recursive(qual_name, parent_base_addr, abs_bitoffs, igroup, si_type, allow_recurse)
 
 for sym in root.findall('.//Symbol'):
     name     = text(sym, 'Name')
@@ -184,13 +242,33 @@ for sym in root.findall('.//Symbol'):
                 actual_addr = base_addr + (elem_boffs // 8)
                 item_name = f"{name}[{idx}]"
                 emit_row(igroup, actual_addr, item_name, '', elem_type, per_bits, elem_boffs, '', actual_addr)
-                # (Optional) Rekursive Entfaltung von Array-UDTs könnte hier erfolgen – derzeit deaktiviert
+
+                # Rekursive Entfaltung für ARRAY-UDTs (falls Elementtyp ein DataType ist)
+                if RECURSE_ARRAY and (elem_type in datatype_by_name) and allowed_udt(elem_type):
+                    expand_struct_recursive(item_name, base_addr, elem_boffs, igroup, elem_type, allow_recurse=True)
         continue
 
     # STRUCT/UDT (SubItems) – inkl. Rekursion in verschachtelte UDTs
     if type_ in datatype_by_name:
-        # Basisadresse ist die IOffset des Parent-Symbols; Start-BitOffset = 0 relativ zum Parent
-        expand_struct_recursive(name, ioffset, 0, igroup, type_)
+        if RECURSE and allowed_udt(type_):
+            expand_struct_recursive(name, ioffset, 0, igroup, type_, allow_recurse=True)
+        else:
+            # Nur die erste Ebene ohne Rekursion (oder wenn gefiltert)
+            dt = datatype_by_name[type_]
+            base_addr = ioffset
+            for si in dt.findall('SubItem'):
+                si_name  = text(si, 'Name')
+                si_type  = text(si, 'Type')
+                si_bits  = int(text(si, 'BitSize', '0') or 0)
+                si_boffs = int(text(si, 'BitOffs', '0') or 0)
+                default_v = ''
+                de = si.find('Default/Value')
+                if de is not None and de.text:
+                    default_v = de.text
+                abs_bitoffs = si_boffs
+                actual_addr = base_addr + (abs_bitoffs // 8)
+                qual_name   = qualify(name, si_name)
+                emit_row(igroup, actual_addr, qual_name, '', si_type, si_bits, abs_bitoffs, default_v, actual_addr)
 
 # ---------- Schreiben mit Chunking ----------
 data_rows = rows[1:]
@@ -208,4 +286,5 @@ else:
         part += 1
         start = end
 
-print("Fertig. RECURSE =", RECURSE)
+print("Fertig. RECURSE =", RECURSE, "| RECURSE_ARRAY =", RECURSE_ARRAY,
+      "| ONLY_FILE =", ONLY_FILE, "| SKIP_FILE =", SKIP_FILE)

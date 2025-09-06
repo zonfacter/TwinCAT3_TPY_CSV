@@ -1,0 +1,9 @@
+# Blacklist-Beispiel (Regex je Zeile)
+# Diese UDTs/FBs werden NICHT rekursiv entfaltet (hat Vorrang nach Whitelist-Prüfung).
+# Zeilen, die mit #, ; oder // beginnen, sind Kommentare.
+
+^TC3_UniLib\.FB_UniWkzgAnstg$
+^MyProject\.(Debug|Test).*
+
+# Beispiel: komplette Bibliothek sperren
+# ^Tc2_MC2\.
