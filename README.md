@@ -166,6 +166,14 @@ MAX_TOTAL_LINES_PER_FILE = 1_670_000
 HEADER_LINES = 2
 ```
 
+## Datenmenge & Performance
+
+* Die Datensatzanzahl kann durch die **rekursive Entfaltung** von UDTs/FBs **sehr stark ansteigen**.
+* Praxisbeispiel: ohne Rekursion ≈ **41 575** Datensätze → mit Rekursion **666 130** Datensätze (gleiche .tpy).
+* Plane entsprechend **Laufzeit, RAM und Dateigröße** ein. Der SPS‑Analyzer lädt große CSVs spürbar langsamer. Daher ist schon ein Split ab 1.670.000 Zeilen vorgesehen
+* Wenn die Datei zu groß wird: Script mit `--no-recurse` starten, oder zusätzliche Filterlogik einbauen (kann bei Bedarf ergänzt werden).
+* Das **Chunking** splittet automatisch; jede Teil‑Datei hat eine eigene Zeile‑2‑Zählung (Datensätze dieses Teils).
+
 ---
 
 ## Beispiele
