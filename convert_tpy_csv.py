@@ -105,6 +105,18 @@ def get_type_bits(type_name: str, symbol_bitsize: int | None = None, array_count
 
     return 8
 
+def qualify(parent: str, child: str) -> str:
+    child = child or ''
+    parent = parent or ''
+    if not parent:
+        return child
+    # Wenn child bereits mit parent. beginnt → ok
+    if child.startswith(parent + "."):
+        return child
+    # Wenn child scheinbar schon voll qualifiziert ist (enthält einen Punkt), prüfen wir auf Duplikat
+    # Trotzdem qualifizieren, um immer konsistent Parent.SubItem zu liefern
+    return f"{parent}.{child}" if child else parent
+
 # ---------- CSV sammeln ----------
 rows = []
 rows.append(['IGroup','IOffset','Name','Comment','Type','BitSize','BitOffs','DefaultValue','ActualAddress'])
@@ -154,14 +166,8 @@ for sym in root.findall('.//Symbol'):
 
             actual_addr = base_addr + (si_boffs // 8)
 
-            # Regel: SubItem-Namen mit Parent qualifizieren (Parent.SubItem)
-            if name:
-                if si_name and not si_name.startswith(name + "."):
-                    qual_name = f"{name}.{si_name}"
-                else:
-                    qual_name = si_name or name
-            else:
-                qual_name = si_name or ''
+            # SubItem-Namen IMMER mit Parent qualifizieren
+            qual_name = qualify(name, si_name)
 
             rows.append([igroup, actual_addr, qual_name, '', si_type, si_bits, si_boffs, default_v, actual_addr])
 
