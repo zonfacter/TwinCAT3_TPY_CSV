@@ -36,8 +36,42 @@ python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ## Aufruf / Parameter
 
 ```bash
-python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] [--only <Whitelist.txt>] [--skip <Blacklist.txt>] <Eingabe.tpy> <Ausgabe.csv>
 ```
+
+**Optionale Flags:**
+
+* `--no-recurse` → deaktiviert **alle** rekursiven Entfaltungen (Top‑UDTs/FBs & Arrays).
+* `--no-array-recurse` → deaktiviert nur die **rekursive Entfaltung von UDT‑Array‑Elementen**.
+* `--only <Datei>` → **Whitelist** (Regex je Zeile). Nur UDT‑Namen, die einem Muster entsprechen, werden rekursiv entfaltet.
+* `--skip <Datei>` → **Blacklist** (Regex je Zeile). UDT‑Namen, die einem Muster entsprechen, werden **nicht** rekursiv entfaltet.
+
+**Beispiele (Windows CMD):**
+
+````bat
+REM absolut
+python convert_tpy_csv.py C:\Projekte\TwinCAT\Plc.tpy C:\Export\output.csv
+
+REM relativ (aus C:\Projekte)
+python convert_tpy_csv.py TwinCAT\Plc.tpy Export\output.csv
+
+REM ohne Rekursion (alles)
+python convert_tpy_csv.py --no-recurse TwinCAT\Plc.tpy Export\output.csv
+
+REM nur Array‑Rekursion aus
+python convert_tpy_csv.py --no-array-recurse TwinCAT\Plc.tpy Export\output.csv
+
+REM Whitelist verwenden
+python convert_tpy_csv.py --only cfg\udt_whitelist.txt TwinCAT\Plc.tpy Export\output.csv
+
+REM Blacklist verwenden
+python convert_tpy_csv.py --skip cfg\udt_blacklist.txt TwinCAT\Plc.tpy Export\output.csv
+
+REM Whitelist + Blacklist (Whitelist zuerst, dann Blacklist)
+python convert_tpy_csv.py --only cfg\udt_whitelist.txt --skip cfg\udt_blacklist.txt TwinCAT\Plc.tpy Export\output.csv
+```bash
+python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] <Eingabe.tpy> <Ausgabe.csv>
+````
 
 **Optionale Flags:**
 
@@ -119,6 +153,12 @@ Beckhoff TwinCat V2-PLC-Symbolfile
 
   * alle Rekursionen: `--no-recurse`
   * nur Array‑Rekursion: `--no-array-recurse`
+* **Whitelist/Blacklist:**
+
+  * `--only <Datei>`: es werden **nur** UDT‑Namen rekursiv entfaltet, die auf **mindestens ein** Regex in der Datei matchen.
+  * `--skip <Datei>`: UDT‑Namen, die auf **irgendein** Regex matchen, werden **nicht** rekursiv entfaltet (greift **nach** der Whitelist‑Prüfung).
+  * **Dateiformat:** eine Regex je Zeile; leere Zeilen und Zeilen beginnend mit `#`, `;` oder `//` sind Kommentare.
+  * **Case‑Sensitivity:** Regex ist standardmäßig **case‑sensitiv**; für Case‑Insensitive `(?i)` als Präfix im Regex verwenden.
 
 ### Top‑Symbol
 
