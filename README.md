@@ -7,9 +7,16 @@ Konvertiert eine **Beckhoff TwinCAT .tpy** in eine CSV im Format des **SPS‑Ana
 ## TL;DR
 
 ```bash
-python convert_tpy_csv.py <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ```
 
+* **Header** wie vom SPS‑Analyzer erwartet:
+
+  1. `Beckhoff TwinCat V2-PLC-Symbolfile`
+  2. Anzahl der Datensätze
+  3. Ab Zeile 3: Datensätze (Semikolon‑separiert)
+* **Großdateien** werden automatisch in Teile gesplittet (max. **1 670 000 Gesamtzeilen** je Datei, inkl. Header).
+* **Rekursive Entfaltung** von verschachtelten UDTs/FBs ist **standardmäßig aktiv** (siehe unten). Mit `--no-recurse` kann sie deaktiviert werden.
 * **Header** wie vom SPS‑Analyzer erwartet:
 
   1. `Beckhoff TwinCat V2-PLC-Symbolfile`
@@ -29,8 +36,12 @@ python convert_tpy_csv.py <Eingabe.tpy> <Ausgabe.csv>
 ## Aufruf / Parameter
 
 ```bash
-python convert_tpy_csv.py <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ```
+
+**Optionales Flag:**
+
+* `--no-recurse` → schaltet die rekursive Entfaltung verschachtelter UDTs/Funktionsbausteine aus.
 
 **Beispiele (Windows CMD):**
 
@@ -40,6 +51,9 @@ python convert_tpy_csv.py C:\Projekte\TwinCAT\Plc.tpy C:\Export\output.csv
 
 REM relativ (aus C:\Projekte)
 python convert_tpy_csv.py TwinCAT\Plc.tpy Export\output.csv
+
+REM ohne Rekursion
+python convert_tpy_csv.py --no-recurse TwinCAT\Plc.tpy Export\output.csv
 ```
 
 > Achtung: `\tpy\Plc.tpy` (führender Backslash) wird als UNC‑Pfad interpretiert und führt zu *FileNotFoundError*. Entweder **relativ ohne führenden Backslash** oder **absolut** angeben.
@@ -90,6 +104,13 @@ Beckhoff TwinCat V2-PLC-Symbolfile
 ---
 
 ## Entfaltungs‑/Adressierungsregeln
+
+### Rekursive Entfaltung (Standard: EIN)
+
+* **Was:** SubItems, deren **Type** wiederum ein `<DataType>` ist (UDT/FB, z. B. `Tc2_Standard.R_TRIG`, `Tc2_Standard.TON`, `Tc2_MC2.*`, `TC3_UniLib.*`), werden **weiter entfaltet**.
+* **Name:** bei jedem Schritt vollständig qualifiziert (`Parent.SubItem[.SubSubItem…]`).
+* **Offset/Adresse:** absolute `BitOffs` wird kumuliert (Summe der relativen Offsets); `ActualAddress = Basis + (BitOffs // 8)`; `IOffset = ActualAddress`.
+* **Deaktivieren:** per Flag `--no-recurse`.
 
 ### Top‑Symbol
 
