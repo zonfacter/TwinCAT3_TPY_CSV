@@ -11,7 +11,7 @@ Konvertiert eine **Beckhoff TwinCAT .tpy** in eine CSV im Format des **SPS‑Ana
 ## TL;DR
 
 ```bash
-python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--gui] [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 ```
 
 * **Header** wie vom SPS‑Analyzer erwartet:
@@ -21,6 +21,7 @@ python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
   3. Ab Zeile 3: Datensätze (Semikolon‑separiert)
 * **Großdateien** werden automatisch in Teile gesplittet (max. **1 670 000 Gesamtzeilen** je Datei, inkl. Header).
 * **Rekursive Entfaltung** von verschachtelten UDTs/FBs ist **standardmäßig aktiv** (siehe unten). Mit `--no-recurse` kann sie deaktiviert werden.
+* **GUI-Start** mit `--gui` (öffnet eine Tkinter-Oberfläche zur Dateiauswahl; wird ebenfalls geöffnet, wenn keine Pfade angegeben sind und die Default-Datei nicht existiert).
 * **Header** wie vom SPS‑Analyzer erwartet:
 
   1. `Beckhoff TwinCat V2-PLC-Symbolfile`
@@ -34,19 +35,21 @@ python convert_tpy_csv.py [--no-recurse] <Eingabe.tpy> <Ausgabe.csv>
 
 * **Python ≥ 3.10** (wegen `int | None` Type‑Hints). Getestet mit **3.13**.
 * Keine externen Abhängigkeiten. Nur Python‑Standardbibliothek (`xml.etree.ElementTree`, `csv`, `re`, `pathlib`, `sys`).
+* **Optional für GUI**: Tkinter (unter Linux z. B. Paket `python3-tk`).
 
 ---
 
 ## Aufruf / Parameter
 
 ```bash
-python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] [--only <Whitelist.txt>] [--skip <Blacklist.txt>] <Eingabe.tpy> <Ausgabe.csv>
+python convert_tpy_csv.py [--gui] [--no-recurse] [--no-array-recurse] [--only <Whitelist.txt>] [--skip <Blacklist.txt>] <Eingabe.tpy> <Ausgabe.csv>
 ```
 
 **Optionale Flags:**
 
 * `--no-recurse` → deaktiviert **alle** rekursiven Entfaltungen (Top‑UDTs/FBs & Arrays).
 * `--no-array-recurse` → deaktiviert nur die **rekursive Entfaltung von UDT‑Array‑Elementen**.
+* `--gui` → öffnet eine **Tkinter-Oberfläche** zur Auswahl von TPY/CSV/Listen.
 * `--only <Datei>` → **Whitelist** (Regex je Zeile). Nur UDT‑Namen, die einem Muster entsprechen, werden rekursiv entfaltet.
 * `--skip <Datei>` → **Blacklist** (Regex je Zeile). UDT‑Namen, die einem Muster entsprechen, werden **nicht** rekursiv entfaltet.
 
