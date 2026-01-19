@@ -95,13 +95,6 @@ def prompt_gui(default_input: str, default_output: str, default_only: str | None
         if filename:
             skip_var.set(filename)
 
-    def toggle_recurse():
-        if not recurse_var.get():
-            recurse_array_var.set(False)
-            recurse_array_check.configure(state='disabled')
-        else:
-            recurse_array_check.configure(state='normal')
-
     def on_run():
         input_path = input_var.get().strip()
         output_path = output_var.get().strip()
@@ -144,10 +137,19 @@ def prompt_gui(default_input: str, default_output: str, default_only: str | None
     tk.Entry(root, textvariable=skip_var, width=46).grid(row=3, column=1, **ttk_pad)
     tk.Button(root, text="Durchsuchen…", command=browse_skip).grid(row=3, column=2, **ttk_pad)
 
-    recurse_check = tk.Checkbutton(root, text="UDT/STRUCT rekursiv entfalten", variable=recurse_var, command=toggle_recurse)
+    recurse_check = tk.Checkbutton(root, text="UDT/STRUCT rekursiv entfalten", variable=recurse_var)
     recurse_check.grid(row=4, column=1, sticky="w", **ttk_pad)
     recurse_array_check = tk.Checkbutton(root, text="Array-UDTs rekursiv entfalten", variable=recurse_array_var)
     recurse_array_check.grid(row=5, column=1, sticky="w", **ttk_pad)
+
+    def toggle_recurse():
+        if not recurse_var.get():
+            recurse_array_var.set(False)
+            recurse_array_check.configure(state='disabled')
+        else:
+            recurse_array_check.configure(state='normal')
+
+    recurse_check.configure(command=toggle_recurse)
 
     button_frame = tk.Frame(root)
     button_frame.grid(row=6, column=0, columnspan=3, pady=8)
