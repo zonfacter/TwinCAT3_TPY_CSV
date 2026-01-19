@@ -7,18 +7,22 @@ from pathlib import Path
 
 # ---------- CLI / Konfiguration ----------
 # Syntax:
-#   python convert_tpy_csv.py [--no-recurse] [--no-array-recurse] [--only <file>] [--skip <file>] <Eingabe.tpy> <Ausgabe.csv>
+#   python convert_tpy_csv.py [--gui] [--no-recurse] [--no-array-recurse] [--only <file>] [--skip <file>] <Eingabe.tpy> <Ausgabe.csv>
 args = sys.argv[1:]
 RECURSE = True              # rekursive Entfaltung von UDTs (STRUCT/FB) aus Top-Symbolen
 RECURSE_ARRAY = True        # rekursive Entfaltung in ARRAY-Elementen, wenn Elementtyp UDT ist
 ONLY_FILE = None            # Pfad zu Whitelist-Datei (Regex je Zeile)
 SKIP_FILE = None            # Pfad zu Blacklist-Datei (Regex je Zeile)
+USE_GUI = False
 paths = []
 
 i = 0
 while i < len(args):
     a = args[i]
-    if a == '--no-recurse':
+    if a == '--gui':
+        USE_GUI = True
+        i += 1
+    elif a == '--no-recurse':
         RECURSE = False
         RECURSE_ARRAY = False
         i += 1
@@ -32,8 +36,144 @@ while i < len(args):
     else:
         paths.append(a); i += 1
 
+def prompt_gui(default_input: str, default_output: str, default_only: str | None,
+               default_skip: str | None, default_recurse: bool, default_recurse_array: bool):
+    try:
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+    except ImportError as exc:
+        print(f"Tkinter nicht verfügbar: {exc}", file=sys.stderr)
+        return None
+
+    root = tk.Tk()
+    root.title("TPY → CSV")
+    root.resizable(False, False)
+    root.result = None
+
+    input_var = tk.StringVar(value=default_input)
+    output_var = tk.StringVar(value=default_output)
+    only_var = tk.StringVar(value=default_only or '')
+    skip_var = tk.StringVar(value=default_skip or '')
+    recurse_var = tk.BooleanVar(value=default_recurse)
+    recurse_array_var = tk.BooleanVar(value=default_recurse_array)
+
+    def set_default_output():
+        if input_var.get().strip() and not output_var.get().strip():
+            p = Path(input_var.get().strip())
+            output_var.set(str(p.with_suffix('.csv')))
+
+    def browse_input():
+        filename = filedialog.askopenfilename(
+            title="TPY-Datei auswählen",
+            filetypes=[("TPY Dateien", "*.tpy"), ("Alle Dateien", "*.*")]
+        )
+        if filename:
+            input_var.set(filename)
+            set_default_output()
+
+    def browse_output():
+        filename = filedialog.asksaveasfilename(
+            title="CSV-Datei speichern",
+            defaultextension=".csv",
+            filetypes=[("CSV Dateien", "*.csv"), ("Alle Dateien", "*.*")]
+        )
+        if filename:
+            output_var.set(filename)
+
+    def browse_only():
+        filename = filedialog.askopenfilename(
+            title="Whitelist-Datei auswählen",
+            filetypes=[("Text Dateien", "*.txt"), ("Alle Dateien", "*.*")]
+        )
+        if filename:
+            only_var.set(filename)
+
+    def browse_skip():
+        filename = filedialog.askopenfilename(
+            title="Blacklist-Datei auswählen",
+            filetypes=[("Text Dateien", "*.txt"), ("Alle Dateien", "*.*")]
+        )
+        if filename:
+            skip_var.set(filename)
+
+    def on_run():
+        input_path = input_var.get().strip()
+        output_path = output_var.get().strip()
+        if not input_path:
+            messagebox.showerror("Fehlende Eingabe", "Bitte eine .tpy Datei auswählen.")
+            return
+        if not output_path:
+            messagebox.showerror("Fehlende Ausgabe", "Bitte eine Ausgabe-CSV auswählen.")
+            return
+        root.result = {
+            'input_file': input_path,
+            'output_file': output_path,
+            'only_file': only_var.get().strip() or None,
+            'skip_file': skip_var.get().strip() or None,
+            'recurse': bool(recurse_var.get()),
+            'recurse_array': bool(recurse_array_var.get()),
+        }
+        root.destroy()
+
+    def on_cancel():
+        root.result = None
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+
+    ttk_pad = {'padx': 6, 'pady': 4}
+    tk.Label(root, text="TPY-Datei:").grid(row=0, column=0, sticky="w", **ttk_pad)
+    tk.Entry(root, textvariable=input_var, width=46).grid(row=0, column=1, **ttk_pad)
+    tk.Button(root, text="Durchsuchen…", command=browse_input).grid(row=0, column=2, **ttk_pad)
+
+    tk.Label(root, text="CSV-Ausgabe:").grid(row=1, column=0, sticky="w", **ttk_pad)
+    tk.Entry(root, textvariable=output_var, width=46).grid(row=1, column=1, **ttk_pad)
+    tk.Button(root, text="Durchsuchen…", command=browse_output).grid(row=1, column=2, **ttk_pad)
+
+    tk.Label(root, text="Whitelist:").grid(row=2, column=0, sticky="w", **ttk_pad)
+    tk.Entry(root, textvariable=only_var, width=46).grid(row=2, column=1, **ttk_pad)
+    tk.Button(root, text="Durchsuchen…", command=browse_only).grid(row=2, column=2, **ttk_pad)
+
+    tk.Label(root, text="Blacklist:").grid(row=3, column=0, sticky="w", **ttk_pad)
+    tk.Entry(root, textvariable=skip_var, width=46).grid(row=3, column=1, **ttk_pad)
+    tk.Button(root, text="Durchsuchen…", command=browse_skip).grid(row=3, column=2, **ttk_pad)
+
+    recurse_check = tk.Checkbutton(root, text="UDT/STRUCT rekursiv entfalten", variable=recurse_var)
+    recurse_check.grid(row=4, column=1, sticky="w", **ttk_pad)
+    recurse_array_check = tk.Checkbutton(root, text="Array-UDTs rekursiv entfalten", variable=recurse_array_var)
+    recurse_array_check.grid(row=5, column=1, sticky="w", **ttk_pad)
+
+    def toggle_recurse():
+        if not recurse_var.get():
+            recurse_array_var.set(False)
+            recurse_array_check.configure(state='disabled')
+        else:
+            recurse_array_check.configure(state='normal')
+
+    recurse_check.configure(command=toggle_recurse)
+
+    button_frame = tk.Frame(root)
+    button_frame.grid(row=6, column=0, columnspan=3, pady=8)
+    tk.Button(button_frame, text="Start", width=12, command=on_run).pack(side="left", padx=6)
+    tk.Button(button_frame, text="Abbrechen", width=12, command=on_cancel).pack(side="left", padx=6)
+
+    toggle_recurse()
+    root.mainloop()
+    return root.result
+
 input_file = paths[0] if len(paths) > 0 else '/mnt/data/Plc.tpy'
 output_file = paths[1] if len(paths) > 1 else '/mnt/data/output.csv'
+
+if USE_GUI or (not paths and not Path(input_file).exists()):
+    gui_result = prompt_gui(input_file, output_file, ONLY_FILE, SKIP_FILE, RECURSE, RECURSE_ARRAY)
+    if not gui_result:
+        sys.exit(0)
+    input_file = gui_result['input_file']
+    output_file = gui_result['output_file']
+    ONLY_FILE = gui_result['only_file']
+    SKIP_FILE = gui_result['skip_file']
+    RECURSE = gui_result['recurse']
+    RECURSE_ARRAY = gui_result['recurse_array']
 
 # Maximale Zeilen pro Datei (inkl. 2 Headerzeilen)
 MAX_TOTAL_LINES_PER_FILE = 1_670_000
