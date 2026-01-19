@@ -41,13 +41,14 @@ def prompt_gui(default_input: str, default_output: str, default_only: str | None
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox
-    except Exception as exc:
+    except ImportError as exc:
         print(f"Tkinter nicht verfügbar: {exc}", file=sys.stderr)
         return None
 
     root = tk.Tk()
     root.title("TPY → CSV")
     root.resizable(False, False)
+    root.result = None
 
     input_var = tk.StringVar(value=default_input)
     output_var = tk.StringVar(value=default_output)
@@ -158,7 +159,7 @@ def prompt_gui(default_input: str, default_output: str, default_only: str | None
 
     toggle_recurse()
     root.mainloop()
-    return getattr(root, 'result', None)
+    return root.result
 
 input_file = paths[0] if len(paths) > 0 else '/mnt/data/Plc.tpy'
 output_file = paths[1] if len(paths) > 1 else '/mnt/data/output.csv'
