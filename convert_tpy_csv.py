@@ -110,7 +110,7 @@ def prompt_gui(default_input: str, default_output: str, default_only: str | None
             'only_file': only_var.get().strip() or None,
             'skip_file': skip_var.get().strip() or None,
             'recurse': bool(recurse_var.get()),
-            'recurse_array': bool(recurse_array_var.get()) if recurse_var.get() else False,
+            'recurse_array': bool(recurse_array_var.get()),
         }
         root.destroy()
 
